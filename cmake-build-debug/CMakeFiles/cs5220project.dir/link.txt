@@ -1,0 +1,1 @@
+/usr/lib/nvidia-cuda-toolkit/bin/g++ @CMakeFiles/cs5220project.dir/objects1.rsp CMakeFiles/cs5220project.dir/cmake_device_link.o -o cs5220project @CMakeFiles/cs5220project.dir/linkLibs.rsp -L"/usr/lib/x86_64-linux-gnu/stubs" -L"/usr/lib/x86_64-linux-gnu"
