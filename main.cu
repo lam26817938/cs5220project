@@ -93,18 +93,6 @@ __global__ void shiftRows(unsigned char *state) {
     }
 }
 
-int padData(unsigned char **data, int origSize) {
-    int paddedSize = (origSize + 15) / 16 * 16;
-    *data = (unsigned char*)realloc(*data, paddedSize);
-    if (!*data) {
-        perror("Failed to allocate padded data");
-        return -1;
-    }
-    for (int i = origSize; i < paddedSize; i++) {
-        (*data)[i] = 16 - origSize % 16;  // PKCS#7 padding
-    }
-    return paddedSize;
-}
 
 __global__ void mixColumns(unsigned char *state) {
     __shared__ unsigned char temp[16];
@@ -122,13 +110,6 @@ __global__ void mixColumns(unsigned char *state) {
 
     if (idx < 16) {
         state[idx] = temp[idx];
-    }
-}
-// Function to initialize data for simplicity
-void initData(unsigned char *data, int size) {
-    srand(static_cast<unsigned>(time(NULL)));
-    for (int i = 0; i < size; i++) {
-        data[i] = rand() % 256;  // Generate a random byte
     }
 }
 
@@ -178,7 +159,10 @@ void printData(const char* tag, const unsigned char* data, int size) {
 }
 
 int main() {
+    clock_t start, end;
+    double cpu_time_used;
 
+    start = clock();
     const char *inputFileName = "input.txt";
     const char *outputFileName = "encrypted_output.txt";
 
@@ -202,7 +186,7 @@ int main() {
 
     fread(fileData, 1, fileSize, file);
     fclose(file);
-    printData("Initial Data", fileData, fileSize);
+ //   printData("Initial Data", fileData, fileSize);
 
     // 密钥和轮密钥
     uint8_t key[16] = {0x2b, 0x7e, 0x15, 0x16, 0x28, 0xae, 0xd2, 0xa6, 0xab, 0xf7, 0x15, 0x88, 0x09, 0xcf, 0x4f, 0x3c}; // 示例密钥
@@ -216,37 +200,43 @@ int main() {
     cudaMemcpy(d_state, fileData, fileSize, cudaMemcpyHostToDevice);
     cudaMemcpy(d_roundKeys, roundKeys, 176, cudaMemcpyHostToDevice);
 
+    clock_t AESstart, AESend;
+    double AES_time_used;
+
+    AESstart = clock();
     // 执行AES加密
     int numBlocks = fileSize / 16; // 假设文件大小是16的倍数
     for (int round = 0; round <= 10; ++round) {
         addRoundKey<<<numBlocks, 16>>>(d_state, d_roundKeys + round * 16);
         cudaDeviceSynchronize(); // 确保CUDA操作完成
         cudaMemcpy(fileData, d_state, fileSize, cudaMemcpyDeviceToHost);
-        printData("After addRoundKey", fileData, fileSize);
+      //  printData("After addRoundKey", fileData, fileSize);
 
         if (round < 10) {
             subBytes<<<numBlocks, 16>>>(d_state);
             cudaDeviceSynchronize();
             cudaMemcpy(fileData, d_state, fileSize, cudaMemcpyDeviceToHost);
-            printData("After subBytes", fileData, fileSize);
+         //   printData("After subBytes", fileData, fileSize);
 
             shiftRows<<<numBlocks, 16>>>(d_state);
             cudaDeviceSynchronize();
             cudaMemcpy(fileData, d_state, fileSize, cudaMemcpyDeviceToHost);
-            printData("After shiftRows", fileData, fileSize);
+           // printData("After shiftRows", fileData, fileSize);
 
             if (round < 9) {
                 mixColumns<<<numBlocks, 4>>>(d_state);
                 cudaDeviceSynchronize();
                 cudaMemcpy(fileData, d_state, fileSize, cudaMemcpyDeviceToHost);
-                printData("After mixColumns", fileData, fileSize);
+               // printData("After mixColumns", fileData, fileSize);
             }
         }
     }
-
+    AESend = clock();
+    AES_time_used = ((double) (AESend - AESstart)) / CLOCKS_PER_SEC;
+    printf("AES took %f seconds to execute \n", AES_time_used);
     // 从设备获取加密数据
     cudaMemcpy(fileData, d_state, fileSize, cudaMemcpyDeviceToHost);
-    printData("Final Encrypted Data", fileData, fileSize);
+   // printData("Final Encrypted Data", fileData, fileSize);
 
     // Base64编码
     int encodedSize = calc_base64_encoded_len(fileSize);
@@ -257,7 +247,7 @@ int main() {
     }
 
     base64_encode(fileData, fileSize, base64EncodedData);
-    printf("Base64 Encoded Data: %s\n", base64EncodedData);
+   // printf("Base64 Encoded Data: %s\n", base64EncodedData);
 
     // 将Base64编码的数据写入文件
     FILE *outFile = fopen(outputFileName, "w");
@@ -269,13 +259,19 @@ int main() {
     fprintf(outFile, "%s", base64EncodedData);
     fclose(outFile);
 
-    printf("Encryption complete. Output written to '%s'\n", outputFileName);
+
+
 
     // 清理
     free(base64EncodedData);
     free(fileData);
     cudaFree(d_state);
     cudaFree(d_roundKeys);
+    end = clock();
+    cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
+    printf("Encryption took %f seconds to execute \n", cpu_time_used);
+    printf("comm took %f seconds to execute \n", cpu_time_used-AES_time_used);
 
+    printf("Encryption complete. Output written to '%s'\n", outputFileName);
     return 0;
 }
